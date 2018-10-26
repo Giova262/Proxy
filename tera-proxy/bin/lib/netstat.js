@@ -9,7 +9,7 @@ module.exports = port => {
 		if(line[0] == 'TCP' && line[1] == '0.0.0.0:' + port && line[2] == '0.0.0.0:0') {
 			const pid = line[4]
 
-			if(pid === '4') return 'Kernel (probably malware)'
+			if(pid === '4') return 'Kernel (Microsoft IIS?)'
 
 			let proc
 

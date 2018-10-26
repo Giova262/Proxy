@@ -1,4 +1,5 @@
-const { Connection, RealClient } = require('tera-proxy-game'),
+const SlsProxy = require('tera-proxy-sls'),
+	{ Connection, RealClient } = require('tera-proxy-game'),
 	{ protocol } = require('tera-data-parser'),
 	{ region: REGION, cacheModules } = require('../config.json'),
 	REGIONS = require('./regions'),
@@ -13,11 +14,14 @@ const fs = require('fs'),
 	net = require('net'),
 	path = require('path'),
 	dns = require('dns'),
-	hosts = require('./hosts'),
-	{ customServers, listenHostname, hostname } = currentRegion
+	url = require('url'),
+	hosts = require('./hosts')
+
+const sls = new SlsProxy(currentRegion),
+	slsProxyIp = '127.0.0.' + (10 + currentRegion.index)
 
 // Test if we're allowed to modify the hosts file
-try { hosts.remove(listenHostname, hostname) }
+try { hosts.remove() }
 catch(e) {
 	switch(e.code) {
 		case 'EACCES':
@@ -85,11 +89,6 @@ function checkMod(modName, file) {
 	return true
 }
 
-const SlsProxy = require('tera-proxy-sls')
-
-const servers = new Map(),
-	proxy = new SlsProxy(currentRegion)
-
 function clearUserModules(children) {
 	const childModules = Object.create(null)
 	let doChildModules
@@ -120,104 +119,108 @@ function clearUserModules(children) {
 		void 0
 }
 
+const servers = new Map()
+
 dns.setServers(['8.8.8.8', '8.8.4.4'])
 
 async function init() {
 	console.log(`[proxy] initializing, game region: ${REGION}`)
 
-	if(['NA', 'TW', 'JP', 'TH', 'KR', 'KR-TEST'].includes(REGION)) require('./xigncode-bypass')()
-
 	// Retrieve server list
-	const serverList = await new Promise((resolve, reject) => {
-		proxy.fetch((e, list) => { e ? reject(e) : resolve(list) })
-	})
+	const serverList = await sls.fetch()
 
-	// Create game proxies for specified servers
-	for(let id in customServers) {
-		if(isNaN(id)) continue
+	// Create game proxies for all servers
+	const customServers = sls.customServers = { tag: currentRegion.tag }
+	{
+		let i = 0
+		for(let id in serverList) {
+			const target = serverList[id]
 
-		const target = serverList[id]
+			customServers[id] = {
+				ip: '127.0.0.' + (20 + i++),
+				port: 9250 + currentRegion.index,
+				keepOriginal: true
+			}
 
-		if(!target) {
-			console.error(`server ${id} not found`)
-			continue
+			const server = net.createServer(socket => {
+				const logTag = `[game][${socket.remoteAddress}:${socket.remotePort}]`
+
+				function log(msg) { console.log(logTag, msg) }
+
+				socket.setNoDelay(true)
+
+				const connection = new Connection(),
+					client = new RealClient(connection, socket),
+					srvConn = connection.connect(client, { host: target.ip, port: target.port })
+
+				populateModulesList()
+
+				log('connecting')
+
+				connection.dispatch.once('init', () => {
+					connection.dispatch.region = REGION.split('-')[0].toLowerCase()
+					for(let name of modules) connection.dispatch.load(name, module)
+				})
+
+				socket.on('error', err => {
+					if(err.code === 'ECONNRESET') log('lost connection to client')
+					else console.warn(logTag, err)
+				})
+
+				srvConn.on('connect', () => {
+					log(`connected to ${srvConn.remoteAddress}:${srvConn.remotePort}`)
+				})
+
+				srvConn.on('error', err => {
+					if(err.code === 'ECONNRESET') log('lost connection to server')
+					else console.warn(logTag, err)
+				})
+
+				srvConn.on('close', () => {
+					log('disconnected')
+
+					if(!cacheModules) {
+						console.log('[proxy] unloading mods (cacheModules = false)')
+						clearUserModules()
+					}
+				})
+			})
+
+			servers.set(id, server)
 		}
-
-		const server = net.createServer(socket => {
-			const logTag = `[game][${socket.remoteAddress}:${socket.remotePort}]`
-
-			function log(msg) { console.log(logTag, msg) }
-
-			socket.setNoDelay(true)
-
-			const connection = new Connection(),
-				client = new RealClient(connection, socket),
-				srvConn = connection.connect(client, { host: target.ip, port: target.port })
-
-			populateModulesList()
-
-			log('connecting')
-
-			connection.dispatch.once('init', () => {
-				for(let name of modules) connection.dispatch.load(name, module)
-			})
-
-			socket.on('error', err => {
-				if(err.code === 'ECONNRESET') log('lost connection to client')
-				else console.warn(logTag, err)
-			})
-
-			srvConn.on('connect', () => {
-				log(`connected to ${srvConn.remoteAddress}:${srvConn.remotePort}`)
-			})
-
-			srvConn.on('error', err => {
-				if(err.code === 'ECONNRESET') log('lost connection to server')
-				else console.warn(logTag, err)
-			})
-
-			srvConn.on('close', () => {
-				log('disconnected')
-
-				if(!cacheModules) {
-					console.log('[proxy] unloading user mods')
-					clearUserModules()
-				}
-			})
-		})
-
-		servers.set(id, server)
 	}
 
 	// Run SLS proxy
 	try {
-		await new Promise((resolve, reject) => {
-			proxy.listen(listenHostname, e => { e ? reject(e) : resolve() })
-		})
+		await sls.listen(slsProxyIp)
 	}
 	catch(e) {
 		if(e.code === 'EADDRINUSE') {
 			console.error('ERROR: Another instance of TeraProxy is already running, please close it then try again.')
 			process.exit()
 		}
-		else if(e.code === 'EACCES') {
-			let port = currentRegion.port
-			console.error(`ERROR: Another process is already using port ${port}.\nPlease close or uninstall the application first:\n${require('./netstat')(port)}`)
+		if(e.code === 'EACCES') {
+			console.error(`ERROR: Another process is already using port ${sls.port}.\nPlease close or uninstall the application first:\n${require('./netstat')(sls.port)}`)
+			process.exit()
+		}
+		if(e.code === 'EADDRNOTAVAIL') {
+			console.error(`ERROR: Loopback address not available. Restart your computer and try again.
+
+If this does not work:
+* Disable your firewall.
+* Disable or uninstall any third-party firewall or anti-virus software.`)
 			process.exit()
 		}
 		throw e
 	}
-	console.log(`[sls] listening on ${listenHostname}:${currentRegion.port}`)
-
-	hosts.set(listenHostname, hostname)
-	console.log('[sls] added hosts file entry')
+	console.log(`[sls] listening on ${slsProxyIp}:${sls.port}`)
 
 	// Run game proxies
 	const gameProxyQ = []
 
 	for(let [id, server] of servers)
 		gameProxyQ.push(new Promise((resolve, reject) => {
-			server.listen(customServers[id].port, customServers[id].ip || '127.0.0.1', resolve)
+			server.listen(customServers[id].port, customServers[id].ip, resolve)
 			.on('error', reject)
 		}).then(() => {
 			const address = server.address()
@@ -226,16 +229,19 @@ async function init() {
 
 	try {
 		await Promise.all(gameProxyQ)
-		console.log('[proxy] OK')
 	}
 	catch(e) {
 		if(e.code === 'EACCES') {
-			let port = currentRegion.port
-			console.error(`ERROR: Another process is already using port ${port}.\nPlease close or uninstall the application first:`)
+			let port = customServers[0].port
+			console.error(`ERROR: Another process is already using port ${port}.\nPlease close or uninstall the application first:\n${require('./netstat')(port)}`)
 			return require('./netstat')(port)
 		}
 		throw e
 	}
+
+	hosts.set(slsProxyIp, sls.host)
+	console.log('[sls] added hosts file entry')
+	console.log('[proxy] OK')
 }
 
 init()
@@ -243,10 +249,10 @@ init()
 function cleanExit() {
 	console.log('terminating...')
 
-	try { hosts.remove(listenHostname, hostname) }
+	try { hosts.remove(sls.host) }
 	catch(_) {}
 
-	proxy.close()
+	sls.close()
 	for(let server of servers.values()) server.close()
 
 	process.exit()
