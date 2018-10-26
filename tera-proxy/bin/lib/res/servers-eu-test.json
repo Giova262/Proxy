@@ -1,0 +1,13 @@
+{
+	"tag": "[Proxy]",
+	"90": {
+		"ip": "127.0.0.27",
+		"port": 9250,
+		"keepOriginal": true
+	},
+	"91": {
+		"ip": "127.0.0.27",
+		"port": 9251,
+		"keepOriginal": true
+	}
+}

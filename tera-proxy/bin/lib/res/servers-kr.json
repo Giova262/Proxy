@@ -1,0 +1,13 @@
+{
+	"tag": "[프록시]",
+	"1": {
+		"ip": "127.0.0.23",
+		"port": 9250,
+		"keepOriginal": true
+	},
+	"8": {
+		"ip": "127.0.0.23",
+		"port": 9251,
+		"keepOriginal": true
+	}
+}
