@@ -1,0 +1,13 @@
+{
+	"tag": ".",
+	"4105": {
+		"ip": "127.0.0.20",
+		"port": 9250,
+		"keepOriginal": true
+	},
+	"4107": {
+		"ip": "127.0.0.20",
+		"port": 9251,
+		"keepOriginal": true
+	}
+}

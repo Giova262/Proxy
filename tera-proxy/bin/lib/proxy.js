@@ -62,9 +62,11 @@ function populateModulesList() {
 }
 
 function checkMod(modName, file) {
+	
 	if(!fs.lstatSync(file).isDirectory()) return true // Standalone script
 
-	try {
+	/***COMENTADO POR MI */
+	/*try {
 		const {packets} = JSON.parse(fs.readFileSync(path.join(file, 'mod.json'), 'utf8'))
 
 		if(packets) {
@@ -90,7 +92,7 @@ function checkMod(modName, file) {
 			}
 		}
 	}
-	catch(e) {}
+	catch(e) {}*/
 
 	return true
 }
