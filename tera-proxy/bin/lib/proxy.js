@@ -1,6 +1,6 @@
-if(process.versions.node === '11.0.0') {
-	console.error(`Error: Node.JS 11.0.0 contains a critical bug preventing timers from working.
-Please install a newer version (if available) or revert to 10.12.0.`)
+if(['11.0.0', '11.1.0'].includes(process.versions.node)) {
+	console.error(`Error: Node.JS ${process.versions.node} contains a critical bug preventing timers from working.
+Please install a newer version (if available) or revert to 10.13.0.`)
 	process.exit()
 }
 
@@ -62,11 +62,9 @@ function populateModulesList() {
 }
 
 function checkMod(modName, file) {
-	
 	if(!fs.lstatSync(file).isDirectory()) return true // Standalone script
 
-	/***COMENTADO POR MI */
-	/*try {
+	try {
 		const {packets} = JSON.parse(fs.readFileSync(path.join(file, 'mod.json'), 'utf8'))
 
 		if(packets) {
@@ -92,7 +90,7 @@ function checkMod(modName, file) {
 			}
 		}
 	}
-	catch(e) {}*/
+	catch(e) {}
 
 	return true
 }
